@@ -7,8 +7,14 @@ const size_t max_line_size   = 256;
 const size_t max_symbol_size = 256;
 const size_t max_stack_size  = 16;
 // a-z, A-Z, and these: + - . * / < = > ! ? : $ % _ & ~ ^.)
-const char* CALL=  "#";
 const int CALL_SIZE = 1;
+
+#define CHECK_CELL(A) if (0 == A) { fatal_error("Broken cell"); return; }
+
+struct env_t {};
+struct env_t* env_create(const char* filename) {
+	return 0;
+}
 
 void fatal_error(const char* message) {
 	if (message)
@@ -16,72 +22,8 @@ void fatal_error(const char* message) {
 	exit(1);
 }
 
-enum sexp_type_t {
-	CALLT, IF, DEFINE, SYMBOL
-};
-
-struct sexp_t {
-	enum sexp_type_t type;
-	char*    symbol;
-	struct sexp_t** arguments;
-	int      num_arguments;
-};
-
-void sexp_destroy(struct sexp_t* s) {
-	int i = 0;
-	for (; i < s->num_arguments; ++i)
-		free(s->arguments[i]);
-	free(s->arguments);
-	free(s->symbol);
-	free(s);
-}
-
-struct sexp_t* sexp_create(const char* symbol, int symbol_len) {
-	struct sexp_t* sexp = malloc(sizeof(struct sexp_t));
-	sexp->symbol = malloc(symbol_len + 1);
-	strncpy(sexp->symbol, symbol, symbol_len + 1);
-	sexp->arguments = 0;
-	sexp->num_arguments = 0;
-	return sexp;
-}
-
-void sexp_add_arg(struct sexp_t* dest, struct sexp_t** s) {
-	const int i = dest->num_arguments;
-	dest->arguments = realloc(dest->arguments, (i+1)*sizeof(struct sexp_t*));
-	dest->num_arguments++;
-	dest->arguments[i] = *s;
-	*s = 0;
-}
-
-void sexp_print(struct sexp_t* s) {
-	if (!s)
-		return;
-	int i = 0;
-	if (CALL[0] == s->symbol[0])
-		printf(" (");
-	else
-		printf (" %s", s->symbol);
-	for (; i != s->num_arguments; ++i) {
-		sexp_print(s->arguments[i]);
-	}
-	if (CALL[0] == s->symbol[0])
-		printf(" )\n");
-}
-
-
 /* */
 
-struct context_t {
-	struct sexp_t* root;
-};
-
-struct context_t* context_create(const char* context_name) {
-	struct context_t* context = malloc(sizeof(struct context_t));
-	context->root = sexp_create(context_name, strlen(context_name));
-	return context;
-}
-
-/* */
 enum token_type_t {
 	OPEN_PAREN = '('
 	, OPEN_SQUARE_PAREN = '['
@@ -100,17 +42,21 @@ struct token_t {
 
 enum cell_type_t {
 	INTEGER
+	, BOOLEAN
 	, STRING
+	, SYM
+	, CALL
 	, CONS_CELL
+	, NIL
 };
 
 struct cell_t {
+	enum cell_type_t tag;
 	union {
 		void* p;
 		int   i;
 		char* s;
 	};
-	enum cell_type_t tag;
 };
 
 struct cons_cell_t {
@@ -118,12 +64,7 @@ struct cons_cell_t {
 	struct cell_t* cdr;
 };
 
-struct cell_t* CONS(struct cell_t* a, struct cell_t* b) {
-	struct cons_cell_t* cons_cell = malloc(sizeof(cons_cell_t));
-	cons_cell->car = a;
-	cons_cell->cdr = b;
-	return cell_from_cons_cell(cons_cell);
-}
+struct cell_t NA = {NIL, 0};
 
 void assert(int value, const char* message) {
 	if (!value)
@@ -137,28 +78,178 @@ struct cell_t* cell_from_int(int i) {
 	return int_cell;
 }
 
+struct cell_t* cell_from_string(char* str) {
+	struct cell_t* str_cell = malloc(sizeof(struct cell_t));
+	str_cell->tag = STRING;
+	str_cell->s = malloc(sizeof(char)*strlen(str));
+	strcpy(str_cell->s, str);
+	return str_cell;
+}
+
+struct cell_t* cell_call() {
+	struct cell_t* cell = malloc(sizeof(struct cell_t));
+	cell->tag = CALL;
+	cell->p = 0;
+	return cell;
+}
+
+int is_numeric(const char* str) {
+	int i = 0;
+	for (; str[i]; ++i)
+		if (str[i] < '0' || str[i] > '9')
+			return 0;
+	return 1;
+}
+
+int is_boolean(const char* str) {
+	return 0 == strcmp("f", str) || 0 == strcmp("t", str);
+}
+
+struct cell_t* cell_from_bool(char bool) {
+	struct cell_t* cell = malloc(sizeof(struct cell_t));
+	cell->tag = BOOLEAN;
+	cell->i = 't' == bool;
+	return cell;
+}
+
+struct cell_t* cell_from_symbol(char* str, int len) {
+	if (str[0] == '"' && str[len-1] == '"')
+		return cell_from_string(str);
+	else if (is_numeric(str))
+		return cell_from_int(atoi(str));
+	else if (is_boolean(str))
+		return cell_from_bool(str[0]);
+
+	struct cell_t* cell = malloc(sizeof(struct cell_t));
+	cell->tag = SYM;
+	cell->s = malloc(sizeof(char)*strlen(str));
+	strcpy(cell->s, str);
+	return cell;
+}
+
 struct cell_t* cell_from_cons_cell(struct cons_cell_t* cons_cell) {
-	if (0 == cons_cell) return 0;
+	if (0 == cons_cell) return &NA;
 	struct cell_t* cell = malloc(sizeof(struct cell_t));
 	cell->p = cons_cell;
 	cell->tag = CONS_CELL;
 	return cell;
 }
 
-struct sexp_t* eval(struct sexp_t* exp) {
-	if (0 == exp) return 0;
-	if (0 == strcmp(exp->symbol, CALL)) {
-		int i = 0;
-		struct sexp_t* sexp = exp->arguments[0];
-		struct sexp_t* function = eval(sexp);
-		eval(function);
-	} else if (0 == strcmp(exp->symbol, "+")) {
-		int acc = 0;
-		int i = 0;
-		for (; i < exp->num_arguments; ++i)
-			acc += to_int(eval(exp->arguments[i]));
+struct cell_t* cell_from_cons_cell2(struct cell_t* a, struct cell_t* d) {
+	if (0 == a) a = &NA;
+	if (0 == d) d = &NA;
+	struct cons_cell_t* cs = malloc(sizeof(struct cons_cell_t));
+	cs->car = a;
+	cs->cdr = d;
+	return cell_from_cons_cell(cs);
+}
+
+struct cell_t* CONS(struct cell_t* a, struct cell_t* b) {
+	struct cons_cell_t* cons_cell = malloc(sizeof(struct cons_cell_t));
+	cons_cell->car = a;
+	cons_cell->cdr = b;
+	return cell_from_cons_cell(cons_cell);
+}
+
+struct cell_t* CDR(struct cell_t* cell) {
+	if (&NA == cell) return &NA;
+	if (cell->tag != CONS_CELL) return &NA;
+	struct cons_cell_t* ptr = (struct cons_cell_t*)cell->p;
+	if (0 == ptr) {
+		fatal_error("NULL pointer CDRed");
+		return &NA;
+	}
+	return ptr->cdr;
+}
+
+struct cell_t* CAR(struct cell_t* cell) {
+	if (&NA == cell) return &NA;
+	if (cell->tag != CONS_CELL) return &NA;
+	struct cons_cell_t* ptr = (struct cons_cell_t*)cell->p;
+	if (0 == ptr) {
+		fatal_error("NULL pointer CARed");
+		return &NA;
+	}
+	return ptr->car;
+}
+
+int is_nil(struct cell_t* cell) {
+	return cell && cell->tag == NIL;
+}
+
+void print_cell(struct cell_t* cell) {
+	if (0 == cell)
+		return;
+	if (is_nil(cell)) {
+		printf("NIL ");
+		return;
+	}
+	switch (cell->tag) {
+		case NIL: printf("NIL "); break;
+		case INTEGER: printf("%d ", cell->i); break;
+		case STRING:  printf("%s ", cell->s); break;
+		case CONS_CELL: printf("["); print_cell(CAR(cell)); printf(","); print_cell(CDR(cell)); printf("] "); break;
+		case SYM : printf("#%s ", cell->s); break;
+		case BOOLEAN : if (cell->i) printf("True"); else printf("False"); break;
+		case CALL : printf("CALL "); break;
 	}
 }
+
+struct cell_t* eval(struct cell_t* exp) {
+	if (0 == exp || &NA == exp) return &NA;
+	switch(exp->tag) {
+		case CONS_CELL: {
+			struct cell_t* a = eval(CAR(exp));
+			switch (a->tag) {
+				case CALL : {
+					struct cell_t* func = CDR(exp);
+					//					printf("\n--------\n");
+					//					print_cell(func);
+					//					printf("\n--------");
+					struct cell_t* func_name = eval(CAR(func));
+					//					printf("\n+++++++++++\n");
+					//					print_cell(func_name);
+					//					printf("\n+++++++++++");
+					struct cell_t* params = CDR(func);
+					if (0 == strcmp(func_name->s, "+")) {
+						int acc = 0;
+						while (!is_nil(params)) {
+							//							print_cell(CAR(params));
+							//							printf("\n||||");
+							acc += eval(CAR(params))->i;
+							params = CDR(params);
+						}
+						return cell_from_int(acc);
+					} else if (0 == strcmp("cons", func_name->s)) {
+						return CONS(eval(CAR(params)), eval(CAR(CDR(params))));
+					} else if (0 == strcmp("car", func_name->s)) {
+						return CAR(eval(CAR(params)));
+					} else if (0 == strcmp("cdr", func_name->s)) {
+						return CDR(eval(CAR(params)));
+					} else if (0 == strcmp("if", func_name->s)) {
+						struct cell_t* cond = eval(CAR(params));
+						if (cond->tag != BOOLEAN) {
+							fatal_error("conditional expression should have type BOOLEAN");
+							return &NA;
+						} else {
+							if (cond->i) {
+								return eval(CAR(CDR(params)));
+							} else {
+								return eval(CAR(CDR(CDR(params))));
+							}
+						}
+					}
+				}
+				default: return a;
+			}
+		}
+		default: return exp;
+	}
+}
+
+/*
+	Here goes tokenization
+ */
 
 struct token_t* token_append(struct token_t* token, enum token_type_t type, const char* identifier, int id_len) {
 	token->next_token = malloc(sizeof(struct token_t));
@@ -178,14 +269,16 @@ int   global_line_number;
 char* global_filename;
 
 int is_whitespace(char ch) {
-	return ch == '\n' || ch == ' ' || ch == '\t';
+	return ch == '\n' || ch == ' ' || ch == '\t' || ch == '\r';
 }
 
 struct token_t* tokenize(const char* data, int data_len) {
 	int line_number = 0;
 	int i = 0;
 	struct token_t* token = malloc(sizeof(struct token_t));
+	token->next_token = 0;
 	struct token_t* next  = token;
+	next->next_token = 0;
 	char* symbol_accumulator = malloc(max_symbol_size);
 	int   symbol_len = 0;
 	for (; i < data_len; ++i) {
@@ -215,7 +308,7 @@ struct token_t* tokenize(const char* data, int data_len) {
 void print_token_chain(struct token_t* token) {
 	while (token) {
 		if (SYMBOL == token->type) {
-			printf("#%s ", token->identifier);
+			printf("%s ", token->identifier);
 		} else {
 			printf("%c ", token->type);
 		}
@@ -224,51 +317,54 @@ void print_token_chain(struct token_t* token) {
 	printf("\n");
 }
 
-struct sexp_t* parse_r(struct token_t** token, char is_first) {
-	if (0 == token) return 0;
+/*
+	Parsing stuff
+*/
+
+struct cell_t* parse_cons_r(struct token_t** token, char expects_close_paren) {
+	if (0 == token) return &NA;
+	printf(" - %s - %d\n", (*token)->identifier, (*token)->type);
 	struct token_t* t = *token;
-	if (0 == t) return 0;
+	if (0 == t) return &NA;
 	if (OPEN_SQUARE_PAREN == t->type || OPEN_PAREN == t->type) {
 		const char closed = OPEN_PAREN == t->type ? CLOSE_PAREN : CLOSE_SQUARE_PAREN;
 		struct token_t* closing_paren = t->next_token;
-		struct sexp_t* symbol = parse_r(&closing_paren, 1);
-		if (!closing_paren) fatal_error("unexpected end of file\n");
+		struct cell_t* symbol = CONS(cell_call(), parse_cons_r(&closing_paren, 1));
+		
+		if (!closing_paren) {
+			fatal_error("unexpected end of file");
+		}
 		if (closing_paren->type != closed) fatal_error("expecting closing brace here\n");
-		*token = closing_paren;
-		struct sexp_t* retval = sexp_create(CALL, CALL_SIZE);
-		sexp_add_arg(retval, &symbol);
-		return retval;
+		*token = closing_paren->next_token;
+		return CONS(symbol, parse_cons_r(token, 1));
 	} else if (SYMBOL == t->type) {
-		struct sexp_t* symbol = sexp_create(t->identifier, t->id_len);
-		if (0 == is_first) {
-			*token = (*token)->next_token;
-			return symbol;
-		}
-
+		struct cell_t* symbol = cell_from_symbol(t->identifier, t->id_len);
 		struct token_t* current = t->next_token;
-		while (current && current->type != CLOSE_PAREN && current->type != CLOSE_SQUARE_PAREN) {
-			struct sexp_t* param = parse_r(&current, 0);
-			sexp_add_arg(symbol, &param);
-		}
+		symbol = CONS(symbol, parse_cons_r(&current, 1));
 		*token = current;
 		return symbol;
+	} else if (expects_close_paren == 0) {
+		if (CLOSE_SQUARE_PAREN == t->type || CLOSE_PAREN == t->type) {
+			fatal_error("unmatched paren");
+			*token = 0;
+		}
 	}
-	return 0;
+	return &NA;
 }
 
-void parse(struct context_t* context, const char* data, int data_len) {
-	int i  = 0;
-	int sp = -1;
-	char current_symbol[256];
-	current_symbol[0] = '\0';
+struct cell_t* parse_r(struct token_t** token) {
+	if (0 == token || 0 == *token) return &NA;
+	struct cell_t* car = parse_cons_r(token, 0);
+	return CONS(car, parse_r(token));
+}
+
+struct cell_t* parse(struct env_t* e, const char* data, int data_len) {
 	struct token_t* token = tokenize(data, data_len);
-	printf("got a token chain\n");
-	print_token_chain(token);
-	
+	printf("\ngot a token chain\n");
 	struct token_t* t = token->next_token;
-	
-	struct sexp_t* sexp = parse_r(&t, 1);
-	sexp_print(sexp);
+	print_token_chain(t);
+	printf("\nprinted token chain\n");
+	return parse_r(&t);
 }
 
 int exec(const char* filename) {
@@ -285,14 +381,24 @@ int exec(const char* filename) {
 	fclose(file);
 	buffer[buffer_length] = 0;
 	printf(buffer);
-	struct context_t* root_context = context_create(filename);
-	
-	parse(root_context, buffer, buffer_length);
+	struct env_t* root_context = env_create(filename);
+	printf(buffer);
+	printf("\n %d", buffer_length);
+	struct cell_t* ast = parse(root_context, buffer, buffer_length);
+	printf("parsed\n");
+	print_cell(ast);
+	printf("printed");
+	struct cell_t* evaled = eval(ast);
+	printf("\n result: ");
+	print_cell(evaled);
+	return 0;
 }
 
 int main(int argc, char** argv) {
 	int i = 1;
-	for (i = 0; i < argc; ++i)
+	exec("test.scm");
+	/*	for (i = 0; i < argc; ++i) {
 		exec(argv[i]);
+		}*/
 	return 0;
 }

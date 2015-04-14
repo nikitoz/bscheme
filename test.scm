@@ -1,4 +1,1 @@
-
-(define (square a) (* a a))  
-
-(square 2)
+(if f 2 1)
