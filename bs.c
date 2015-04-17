@@ -3,17 +3,92 @@
 #include <stdlib.h>
 #include <string.h>
 
-const size_t max_line_size   = 256;
 const size_t max_symbol_size = 256;
-const size_t max_stack_size  = 16;
-// a-z, A-Z, and these: + - . * / < = > ! ? : $ % _ & ~ ^.)
-const int CALL_SIZE = 1;
 
-#define CHECK_CELL(A) if (0 == A) { fatal_error("Broken cell"); return; }
+/*
+	Simple BST for environment
+*/
+struct node {
+	void* key;
+	struct cell_t* value;
+	struct node* left;
+	struct node* right;
+};
 
-struct env_t {};
+void cell_free(struct cell_t* cell);
+
+struct node* node_str_create(const char* k, struct cell_t* v) {
+	struct node* retval = malloc(sizeof(struct node));
+	retval->key = malloc(sizeof(char)*strlen(k) + 1);
+	strcpy(retval->key, k);
+	retval->value = v;
+	retval->left = 0;
+	retval->right = 0;
+	return retval;
+}
+
+struct node* node_insert(struct node* root, struct node* ins, int (*pred)(void*, void*)) {
+	if (ins == 0 || 0 == root) return ins;
+	int cmp = (*pred)(root->key, ins->key);
+	if (0 == cmp) {
+		cell_free(root->value);
+		ins->left = root->left;
+		ins->right = root->right;
+		free(root);
+		root = ins;
+	} else if (0 > cmp) {
+		root->left = node_insert(root->left, ins, pred);
+	} else {
+		root->right = node_insert(root->right, ins, pred);
+	}
+	return root;
+}
+
+struct node* node_delete(struct node* root, void* key, int (*pred)(void*, void*)) {
+	if (0 == root) return root;
+	int cmp = (*pred)(root->key, key);
+	if (0 == cmp) {
+		if (root->right != 0)
+			root->left = node_insert(root->left, root->right, pred);
+		cell_free(root->value);
+		struct node* nr = root->left;
+		free(root);
+		root = nr;
+	} else if (0 > cmp) {
+		root->left = node_delete(root->left, key, pred);
+	} else {
+		root->right = node_delete(root->right, key, pred);
+	}
+	return root;
+}
+
+struct node* node_find(struct node* root, void* key, int (*pred)(void*, void*)) {
+	if (0 == root) return 0;
+	int cmp = (*pred)(root->key, key);
+	if (0 == cmp) {
+		return root;
+	} else if (0 > cmp) {
+		return node_find(root->left, key, pred);
+	} else {
+		return node_find(root->right, key, pred);
+	}
+}
+
+int env_pred(void* p1, void* p2) {
+	if (p1 ==0 || p2 == 0)
+		printf("77\n");
+	return strcmp(p1,p2);
+}
+
+const char* ALLOWED_TOKENS = "+-.*/<=>!?:$%_&~^.";
+
+struct env_t {
+	struct node* e;
+};
 struct env_t* env_create(const char* filename) {
-	return 0;
+	struct env_t* retval = malloc(sizeof(struct env_t));
+	retval->e = node_str_create("#", 0);
+	return retval;
 }
 
 void fatal_error(const char* message) {
@@ -22,7 +97,9 @@ void fatal_error(const char* message) {
 	exit(1);
 }
 
-/* */
+/* 
+	Tokenizing structures
+*/
 
 enum token_type_t {
 	OPEN_PAREN = '('
@@ -47,6 +124,7 @@ enum cell_type_t {
 	, SYM
 	, CALL
 	, CONS_CELL
+   	, FN
 	, NIL
 };
 
@@ -91,6 +169,13 @@ struct cell_t* cell_call() {
 	cell->tag = CALL;
 	cell->p = 0;
 	return cell;
+}
+
+void cell_free(struct cell_t* cell) {
+	switch (cell->tag) {
+		default: free(cell->p);
+		case INTEGER : free(cell); break;
+	}
 }
 
 int is_numeric(const char* str) {
@@ -173,8 +258,32 @@ struct cell_t* CAR(struct cell_t* cell) {
 	return ptr->car;
 }
 
+struct cell_t* CDAR(struct cell_t* cell) {
+	return CDR(CAR(cell));
+}
+
+struct cell_t* CAAR(struct cell_t* cell) {
+	return CAR(CAR(cell));
+}
+
+struct cell_t* CADR(struct cell_t* cell) {
+	return CAR(CDR(cell));
+}
+
+struct cell_t* CADDR(struct cell_t* cell) {
+	return CAR(CDR(CDR(cell)));
+}
+
+struct cell_t* param1(struct cell_t* params, struct node* e);
+struct cell_t* param2(struct cell_t* params, struct node* e);
+struct cell_t* param3(struct cell_t* params, struct node* e);
+
 int is_nil(struct cell_t* cell) {
 	return cell && cell->tag == NIL;
+}
+
+int is_sym(struct cell_t* cell) {
+	return cell && cell->tag == SYM;
 }
 
 void print_cell(struct cell_t* cell) {
@@ -192,59 +301,188 @@ void print_cell(struct cell_t* cell) {
 		case SYM : printf("#%s ", cell->s); break;
 		case BOOLEAN : if (cell->i) printf("True"); else printf("False"); break;
 		case CALL : printf("CALL "); break;
+		case FN : printf("FN "); print_cell(cell->p); break;
 	}
 }
 
-struct cell_t* eval(struct cell_t* exp) {
+void print_nodestr(struct node* root) {
+	if (0 == root)
+		return;
+	print_nodestr(root->left);
+	printf("key : %s; value :", (char*)root->key); print_cell(root->value);printf("\n");
+	print_nodestr(root->right);
+}
+
+struct cell_t* cell_from_fn(struct cell_t* paramsandbody) {
+	struct cell_t* fn = malloc(sizeof(struct cell_t));
+	fn->tag = FN;
+	fn->p = paramsandbody;
+	return fn;
+}
+
+struct node* node_from_define(struct cell_t* cell) {
+	if (&NA == cell)
+		fatal_error("wrong define syntax\n");
+	struct cell_t* prototype = CAR(cell);
+
+	if (CAR(prototype)->tag == CALL) {
+		struct cell_t* body = CADR(cell);
+		struct cell_t* fnname = CADR(prototype);
+		struct cell_t* params = CDR(CDR(prototype));
+	
+		struct cell_t* c  = params;
+		while (!is_nil(c)) {
+			if (!is_sym(CAR(c))) {
+				fatal_error("wrong notion of function parameter\n");
+				return 0;
+			} else c = CDR(c);
+		}
+		// save to env
+		char* fnName = malloc(sizeof(char) * strlen(fnname->s)+1);
+		strcpy(fnName, fnname->s);
+		struct node* retval = malloc(sizeof(struct node));
+		retval->key = fnName;
+		retval->value = cell_from_fn(CONS(params, body));
+		retval->left = 0;
+		retval->right = 0;
+		return retval;
+	} else {
+		;
+	}
+	return 0;
+}
+
+struct cell_t* eval(struct cell_t* exp, struct node* e) {
 	if (0 == exp || &NA == exp) return &NA;
+	/*	printf("\n Called with: ");
+	print_cell(exp);
+	printf("\n");*/
+
 	switch(exp->tag) {
+		case SYM:{
+			struct node* nd = node_find(e, exp->s, env_pred);
+			if (0 == nd)
+				return &NA;
+			else return  nd->value;
+		}
 		case CONS_CELL: {
-			struct cell_t* a = eval(CAR(exp));
+			struct cell_t* a = eval(CAR(exp), e);
 			switch (a->tag) {
 				case CALL : {
 					struct cell_t* func = CDR(exp);
-					//					printf("\n--------\n");
-					//					print_cell(func);
-					//					printf("\n--------");
-					struct cell_t* func_name = eval(CAR(func));
-					//					printf("\n+++++++++++\n");
-					//					print_cell(func_name);
-					//					printf("\n+++++++++++");
+					struct cell_t* func_name = CAR(func);
+					if (!is_sym(func_name)) {
+						fatal_error("function name is expected\n");
+						return &NA;
+					}
 					struct cell_t* params = CDR(func);
 					if (0 == strcmp(func_name->s, "+")) {
 						int acc = 0;
 						while (!is_nil(params)) {
-							//							print_cell(CAR(params));
-							//							printf("\n||||");
-							acc += eval(CAR(params))->i;
+							acc += param1(params, e)->i;
+							params = CDR(params);
+						}
+						return cell_from_int(acc);
+					} else if (0 == strcmp("*", func_name->s)) {
+					    int acc = 1;
+						while (!is_nil(params)) {
+							acc *= param1(params, e)->i;
 							params = CDR(params);
 						}
 						return cell_from_int(acc);
 					} else if (0 == strcmp("cons", func_name->s)) {
-						return CONS(eval(CAR(params)), eval(CAR(CDR(params))));
+						return CONS(param1(params, e), param2(params, e));
 					} else if (0 == strcmp("car", func_name->s)) {
-						return CAR(eval(CAR(params)));
+						return CAR(param1(params, e));
 					} else if (0 == strcmp("cdr", func_name->s)) {
-						return CDR(eval(CAR(params)));
+						return CDR(param1(params, e));
 					} else if (0 == strcmp("if", func_name->s)) {
-						struct cell_t* cond = eval(CAR(params));
+						struct cell_t* cond = param1(params, e);
 						if (cond->tag != BOOLEAN) {
 							fatal_error("conditional expression should have type BOOLEAN");
 							return &NA;
 						} else {
 							if (cond->i) {
-								return eval(CAR(CDR(params)));
+								return param2(params, e);
 							} else {
-								return eval(CAR(CDR(CDR(params))));
+								return param3(params, e);
 							}
+						}
+					} else if (0 == strcmp("<", func_name->s)) {
+						struct cell_t* operand1 = param1(params, e);
+						struct cell_t* operand2 = param2(params, e);
+						if (!operand1 || !operand2 || operand1 == &NA || operand2 == &NA) {
+							fatal_error("invalid operand for operator less\n");
+						} else if (operand1->tag != operand2->tag) {
+							fatal_error("could not compare opperand of different type\n");
+						} else {
+							switch (operand1->tag) {
+							case INTEGER : return cell_from_bool((operand1->i < operand2->i) ? 't' : 'f');
+							case STRING  : return cell_from_bool((0 < strcmp(operand1->s, operand2->s)) ? 't' : 'f');
+								default : fatal_error("operator less could not be applied for a variables of this type");
+							}
+						}
+						return &NA;
+					} else if (0 == strcmp("define", func_name->s)) { // TODO : work here
+						struct node* nd = node_from_define(params);
+						if (0 != nd) {
+							e = node_insert(e, nd, env_pred);
+						}
+						return &NA;
+					} else {
+						struct node* nd = node_find(e, func_name->s, env_pred);
+						if (0 == nd) {
+							char msg[256];
+							sprintf(msg, "undefined variable %s\n", func_name->s);
+							fatal_error(msg);
+						} else {
+							struct cell_t* fn = nd->value;
+							if (fn->tag != FN) {
+								fatal_error("is not a function\n");
+								return &NA;
+							}
+							struct cell_t* fnparams = CAR(fn->p);
+							struct cell_t* fnargs = params;
+							while (!is_nil(fnparams) && !is_nil(fnargs)) {
+								struct cell_t* ar = eval(CAR(fnargs), e);
+								e = node_insert(e, node_str_create(CAR(fnparams)->s, ar), env_pred);
+								fnparams = CDR(fnparams);
+								fnargs = CDR(fnargs);
+							}
+							if (is_nil(fnparams) ^ is_nil(fnargs)) {
+								fatal_error("unbound variables\n");
+								return &NA;
+							}
+							struct cell_t* retval = eval(CDR(fn->p), e);
+							fnparams = CAR(fn->p);
+							while (!is_nil(fnparams)) {
+   								e = node_delete(e, CAR(fnparams)->s, env_pred);
+								fnparams = CDR(fnparams);
+							}
+							return retval;
 						}
 					}
 				}
-				default: return a;
+				default: {
+					exp = CDR(exp);
+					return is_nil(exp) ? a : eval(exp, e);
+				}
 			}
 		}
 		default: return exp;
 	}
+}
+
+struct cell_t* param1(struct cell_t* params, struct node* e) {
+	return eval(CAR(params), e);
+}
+
+struct cell_t* param2(struct cell_t* params, struct node* e) {
+	return eval(CADR(params), e);
+}
+
+struct cell_t* param3(struct cell_t* params, struct node* e) {
+	return eval(CADDR(params), e);
 }
 
 /*
@@ -260,6 +498,8 @@ struct token_t* token_append(struct token_t* token, enum token_type_t type, cons
 		strncpy(token->identifier, identifier, id_len + 1); // FIXME: +1 ?
 		token->identifier[id_len] = 0;
 		token->id_len = id_len;
+	} else {
+		token->identifier = 0;
 	}
 	token->next_token = 0;
 	return token;
@@ -297,8 +537,13 @@ struct token_t* tokenize(const char* data, int data_len) {
 				if (!is_whitespace(data[i]))
 					next = token_append(next, data[i], 0, 0);
 				break;
- 			default : 
-				symbol_accumulator[symbol_len++] = data[i];
+ 			default :
+				if ((data[i] >= 'a' && data[i] <= 'z') ||
+					(data[i] >= 'A' && data[i] <= 'Z') ||
+					(0 != strchr(ALLOWED_TOKENS, data[i])) ||
+					(data[i] >= '0' && data[i] <= '9')) {
+						symbol_accumulator[symbol_len++] = data[i];
+				}
 				break;
 		}
 	}
@@ -323,9 +568,9 @@ void print_token_chain(struct token_t* token) {
 
 struct cell_t* parse_cons_r(struct token_t** token, char expects_close_paren) {
 	if (0 == token) return &NA;
-	printf(" - %s - %d\n", (*token)->identifier, (*token)->type);
 	struct token_t* t = *token;
 	if (0 == t) return &NA;
+	printf(" - %s - %d\n", (*token)->identifier, (*token)->type);
 	if (OPEN_SQUARE_PAREN == t->type || OPEN_PAREN == t->type) {
 		const char closed = OPEN_PAREN == t->type ? CLOSE_PAREN : CLOSE_SQUARE_PAREN;
 		struct token_t* closing_paren = t->next_token;
@@ -387,8 +632,8 @@ int exec(const char* filename) {
 	struct cell_t* ast = parse(root_context, buffer, buffer_length);
 	printf("parsed\n");
 	print_cell(ast);
-	printf("printed");
-	struct cell_t* evaled = eval(ast);
+	struct node* e = node_str_create("#", 0);
+	struct cell_t* evaled = eval(ast, e);
 	printf("\n result: ");
 	print_cell(evaled);
 	return 0;
@@ -396,9 +641,19 @@ int exec(const char* filename) {
 
 int main(int argc, char** argv) {
 	int i = 1;
-	exec("test.scm");
-	/*	for (i = 0; i < argc; ++i) {
+	//exec("test.scm");
+	for (i = 0; i < argc; ++i) {
 		exec(argv[i]);
-		}*/
+	}
+	/*
+	struct env_t* e = env_create("test.scm");
+	e->e = node_insert(e->e, node_str_create("hello", cell_from_int(1)), env_pred);
+	e->e = node_insert(e->e, node_str_create("hello1", cell_from_int(5)), env_pred);
+	e->e = node_insert(e->e, node_str_create("hello2", cell_from_int(3)), env_pred);
+	e->e = node_insert(e->e, node_str_create("hello3", cell_from_int(2)), env_pred);
+	e->e = node_insert(e->e, node_str_create("hello", cell_from_int(9)), env_pred);
+*/
+	//print_nodestr(e->e);
+	
 	return 0;
 }
