@@ -4,30 +4,6 @@
 #include <string.h>
 
 const size_t max_symbol_size = 256;
-const char* ALLOWED_TOKENS = "+-.*/<=>!?:$%_&~^.";
-
-/*
-	COMMON UTILITY FUNCTIONS
-*/
-
-
-void fatal_error(const char* message) {
-	if (message)
-		printf(message);
-	exit(1);
-}
-
-int is_numeric(const char* str) {
-	int i = 0;
-	for (; str[i]; ++i)
-		if (str[i] < '0' || str[i] > '9')
-			return 0;
-	return 1;
-}
-
-int is_boolean(const char* str) {
-	return 0 == strcmp("f", str) || 0 == strcmp("t", str);
-}
 
 /*
 	TYPES
@@ -40,207 +16,18 @@ struct bst_node_t {
 	struct bst_node_t* right;
 };
 
-enum token_type_t {
-	OPEN_PAREN = '('
-	, OPEN_SQUARE_PAREN = '['
-	, CLOSE_PAREN = ')'
-	, CLOSE_SQUARE_PAREN = ']'
-	, SYMBOL = '#'
-};
-
-struct token_t {
-	enum token_type_t type;
-	char* identifier;
-	int   id_len;
-	struct token_t* next_token;
-};
-
-enum cell_type_t {
-	INTEGER
-	, BOOLEAN
-	, STRING
-	, SYM
-	, CALL
-	, CONS_CELL
-   	, FN
-	, NIL
-};
-
-struct cell_t {
-	enum cell_type_t tag;
-	union {
-		void* p;
-		int   i;
-		char* s;
-	};
-};
-
-struct cons_cell_t {
-	struct cell_t* car;
-	struct cell_t* cdr;
-};
-
-/*
-	CELL-HANDLING ROUTINES
-*/
-
-static struct cell_t NA = {NIL, 0};
-
-void assert(int value, const char* message) {
-	if (!value)
-		fatal_error(message);
-}
-
-struct cell_t* cell_from_int(int i) {
-	struct cell_t* int_cell = malloc(sizeof(struct cell_t));
-	int_cell->tag = INTEGER;
-	int_cell->i = i;
-	return int_cell;
-}
-
-struct cell_t* cell_from_string(char* str) {
-	struct cell_t* str_cell = malloc(sizeof(struct cell_t));
-	str_cell->tag = STRING;
-	str_cell->s = malloc(sizeof(char)*strlen(str));
-	strcpy(str_cell->s, str);
-	return str_cell;
-}
-
-struct cell_t* cell_call() {
-	struct cell_t* cell = malloc(sizeof(struct cell_t));
-	cell->tag = CALL;
-	cell->p = 0;
-	return cell;
-}
-
-void cell_free(struct cell_t* cell) {
-	switch (cell->tag) {
-		default: free(cell->p);
-		case INTEGER : free(cell); break;
-	}
-}
-
-struct cell_t* cell_from_bool(char bool) {
-	struct cell_t* cell = malloc(sizeof(struct cell_t));
-	cell->tag = BOOLEAN;
-	cell->i = 't' == bool;
-	return cell;
-}
-
-struct cell_t* cell_from_symbol(char* str, int len) {
-	if (str[0] == '"' && str[len-1] == '"')
-		return cell_from_string(str);
-	else if (is_numeric(str))
-		return cell_from_int(atoi(str));
-	else if (is_boolean(str))
-		return cell_from_bool(str[0]);
-
-	struct cell_t* cell = malloc(sizeof(struct cell_t));
-	cell->tag = SYM;
-	cell->s = malloc(sizeof(char)*strlen(str));
-	strcpy(cell->s, str);
-	return cell;
-}
-
-struct cell_t* cell_from_cons_cell(struct cons_cell_t* cons_cell) {
-	if (0 == cons_cell) return &NA;
-	struct cell_t* cell = malloc(sizeof(struct cell_t));
-	cell->p = cons_cell;
-	cell->tag = CONS_CELL;
-	return cell;
-}
-
-struct cell_t* cell_from_cons_cell2(struct cell_t* a, struct cell_t* d) {
-	if (0 == a) a = &NA;
-	if (0 == d) d = &NA;
-	struct cons_cell_t* cs = malloc(sizeof(struct cons_cell_t));
-	cs->car = a;
-	cs->cdr = d;
-	return cell_from_cons_cell(cs);
-}
-
-struct cell_t* cell_from_fn(struct cell_t* paramsandbody) {
-	struct cell_t* fn = malloc(sizeof(struct cell_t));
-	fn->tag = FN;
-	fn->p = paramsandbody;
-	return fn;
-}
-
-struct cell_t* CONS(struct cell_t* a, struct cell_t* b) {
-	struct cons_cell_t* cons_cell = malloc(sizeof(struct cons_cell_t));
-	cons_cell->car = a;
-	cons_cell->cdr = b;
-	return cell_from_cons_cell(cons_cell);
-}
-
-struct cell_t* CDR(struct cell_t* cell) {
-	if (&NA == cell) return &NA;
-	if (cell->tag != CONS_CELL) return &NA;
-	struct cons_cell_t* ptr = (struct cons_cell_t*)cell->p;
-	if (0 == ptr) {
-		fatal_error("NULL pointer CDRed");
-		return &NA;
-	}
-	return ptr->cdr;
-}
-
-struct cell_t* CAR(struct cell_t* cell) {
-	if (&NA == cell) return &NA;
-	if (cell->tag != CONS_CELL) return &NA;
-	struct cons_cell_t* ptr = (struct cons_cell_t*)cell->p;
-	if (0 == ptr) {
-		fatal_error("NULL pointer CARed");
-		return &NA;
-	}
-	return ptr->car;
-}
-
-struct cell_t* CDAR(struct cell_t* cell) {
-	return CDR(CAR(cell));
-}
-
-struct cell_t* CAAR(struct cell_t* cell) {
-	return CAR(CAR(cell));
-}
-
-struct cell_t* CADR(struct cell_t* cell) {
-	return CAR(CDR(cell));
-}
-
-struct cell_t* CADDR(struct cell_t* cell) {
-	return CAR(CDR(CDR(cell)));
-}
-
-int is_nil(struct cell_t* cell) {
-	return cell && cell->tag == NIL;
-}
-
-int is_sym(struct cell_t* cell) {
-	return cell && cell->tag == SYM;
-}
-
-void print_cell(struct cell_t* cell) {
-	if (0 == cell)
-		return;
-	if (is_nil(cell)) {
-		printf("NIL ");
-		return;
-	}
-	switch (cell->tag) {
-		case NIL: printf("NIL "); break;
-		case INTEGER: printf("%d ", cell->i); break;
-		case STRING:  printf("%s ", cell->s); break;
-		case CONS_CELL: printf("["); print_cell(CAR(cell)); printf(","); print_cell(CDR(cell)); printf("] "); break;
-		case SYM : printf("#%s ", cell->s); break;
-		case BOOLEAN : if (cell->i) printf("True"); else printf("False"); break;
-		case CALL : printf("CALL "); break;
-		case FN : printf("FN "); print_cell(cell->p); break;
-	}
+void fatal_error(const char* message) {
+	if (message)
+		printf(message);
+	exit(1);
 }
 
 /*
-	FUNCTIONS FOR HANDLING BST-TREE
+	Simple BST for environment
 */
+
+
+void cell_free(struct cell_t* cell);
 
 struct bst_node_t* bst_node_t_str_create(const char* k, struct cell_t* v) {
 	struct bst_node_t* retval = malloc(sizeof(struct bst_node_t));
@@ -299,12 +86,238 @@ struct bst_node_t* bst_node_t_find(struct bst_node_t* root, void* key, int (*pre
 	}
 }
 
+int env_pred(void* p1, void* p2) {
+	return strcmp(p1,p2);
+}
+
+const char* ALLOWED_TOKENS = "+-.*/<=>!?:$%_&~^.";
+
+struct bst_node_t* env_create(const char* filename) {
+    return bst_node_t_str_create("#", 0);
+}
+
+
+/* 
+	Tokenizing structures
+*/
+
+enum token_type_t {
+	OPEN_PAREN = '('
+	, OPEN_SQUARE_PAREN = '['
+	, CLOSE_PAREN = ')'
+	, CLOSE_SQUARE_PAREN = ']'
+	, SYMBOL = '#'
+};
+
+
+struct token_t {
+	enum token_type_t type;
+	char* identifier;
+	int   id_len;
+	struct token_t* next_token;
+};
+
+enum cell_type_t {
+	INTEGER
+	, BOOLEAN
+	, STRING
+	, SYM
+	, CALL
+	, CONS_CELL
+   	, FN
+	, NIL
+};
+
+struct cell_t {
+	enum cell_type_t tag;
+	union {
+		void* p;
+		int   i;
+		char* s;
+	};
+};
+
+struct cons_cell_t {
+	struct cell_t* car;
+	struct cell_t* cdr;
+};
+
+struct cell_t NA = {NIL, 0};
+
+void assert(int value, const char* message) {
+	if (!value)
+		fatal_error(message);
+}
+
+struct cell_t* cell_from_int(int i) {
+	struct cell_t* int_cell = malloc(sizeof(struct cell_t));
+	int_cell->tag = INTEGER;
+	int_cell->i = i;
+	return int_cell;
+}
+
+struct cell_t* cell_from_string(char* str) {
+	struct cell_t* str_cell = malloc(sizeof(struct cell_t));
+	str_cell->tag = STRING;
+	str_cell->s = malloc(sizeof(char)*strlen(str));
+	strcpy(str_cell->s, str);
+	return str_cell;
+}
+
+struct cell_t* cell_call() {
+	struct cell_t* cell = malloc(sizeof(struct cell_t));
+	cell->tag = CALL;
+	cell->p = 0;
+	return cell;
+}
+
+void cell_free(struct cell_t* cell) {
+	switch (cell->tag) {
+		default: free(cell->p);
+		case INTEGER : free(cell); break;
+	}
+}
+
+int is_numeric(const char* str) {
+	int i = 0;
+	for (; str[i]; ++i)
+		if (str[i] < '0' || str[i] > '9')
+			return 0;
+	return 1;
+}
+
+int is_boolean(const char* str) {
+	return 0 == strcmp("f", str) || 0 == strcmp("t", str);
+}
+
+struct cell_t* cell_from_bool(char bool) {
+	struct cell_t* cell = malloc(sizeof(struct cell_t));
+	cell->tag = BOOLEAN;
+	cell->i = 't' == bool;
+	return cell;
+}
+
+struct cell_t* cell_from_symbol(char* str, int len) {
+	if (str[0] == '"' && str[len-1] == '"')
+		return cell_from_string(str);
+	else if (is_numeric(str))
+		return cell_from_int(atoi(str));
+	else if (is_boolean(str))
+		return cell_from_bool(str[0]);
+
+	struct cell_t* cell = malloc(sizeof(struct cell_t));
+	cell->tag = SYM;
+	cell->s = malloc(sizeof(char)*strlen(str));
+	strcpy(cell->s, str);
+	return cell;
+}
+
+struct cell_t* cell_from_cons_cell(struct cons_cell_t* cons_cell) {
+	if (0 == cons_cell) return &NA;
+	struct cell_t* cell = malloc(sizeof(struct cell_t));
+	cell->p = cons_cell;
+	cell->tag = CONS_CELL;
+	return cell;
+}
+
+struct cell_t* cell_from_cons_cell2(struct cell_t* a, struct cell_t* d) {
+	if (0 == a) a = &NA;
+	if (0 == d) d = &NA;
+	struct cons_cell_t* cs = malloc(sizeof(struct cons_cell_t));
+	cs->car = a;
+	cs->cdr = d;
+	return cell_from_cons_cell(cs);
+}
+
+struct cell_t* CONS(struct cell_t* a, struct cell_t* b) {
+	struct cons_cell_t* cons_cell = malloc(sizeof(struct cons_cell_t));
+	cons_cell->car = a;
+	cons_cell->cdr = b;
+	return cell_from_cons_cell(cons_cell);
+}
+
+struct cell_t* CDR(struct cell_t* cell) {
+	if (&NA == cell) return &NA;
+	if (cell->tag != CONS_CELL) return &NA;
+	struct cons_cell_t* ptr = (struct cons_cell_t*)cell->p;
+	if (0 == ptr) {
+		fatal_error("NULL pointer CDRed");
+		return &NA;
+	}
+	return ptr->cdr;
+}
+
+struct cell_t* CAR(struct cell_t* cell) {
+	if (&NA == cell) return &NA;
+	if (cell->tag != CONS_CELL) return &NA;
+	struct cons_cell_t* ptr = (struct cons_cell_t*)cell->p;
+	if (0 == ptr) {
+		fatal_error("NULL pointer CARed");
+		return &NA;
+	}
+	return ptr->car;
+}
+
+struct cell_t* CDAR(struct cell_t* cell) {
+	return CDR(CAR(cell));
+}
+
+struct cell_t* CAAR(struct cell_t* cell) {
+	return CAR(CAR(cell));
+}
+
+struct cell_t* CADR(struct cell_t* cell) {
+	return CAR(CDR(cell));
+}
+
+struct cell_t* CADDR(struct cell_t* cell) {
+	return CAR(CDR(CDR(cell)));
+}
+
+struct cell_t* param1(struct cell_t* params, struct bst_node_t* e);
+struct cell_t* param2(struct cell_t* params, struct bst_node_t* e);
+struct cell_t* param3(struct cell_t* params, struct bst_node_t* e);
+
+int is_nil(struct cell_t* cell) {
+	return cell && cell->tag == NIL;
+}
+
+int is_sym(struct cell_t* cell) {
+	return cell && cell->tag == SYM;
+}
+
+void print_cell(struct cell_t* cell) {
+	if (0 == cell)
+		return;
+	if (is_nil(cell)) {
+		printf("NIL ");
+		return;
+	}
+	switch (cell->tag) {
+		case NIL: printf("NIL "); break;
+		case INTEGER: printf("%d ", cell->i); break;
+		case STRING:  printf("%s ", cell->s); break;
+		case CONS_CELL: printf("["); print_cell(CAR(cell)); printf(","); print_cell(CDR(cell)); printf("] "); break;
+		case SYM : printf("#%s ", cell->s); break;
+		case BOOLEAN : if (cell->i) printf("True"); else printf("False"); break;
+		case CALL : printf("CALL "); break;
+		case FN : printf("FN "); print_cell(cell->p); break;
+	}
+}
+
 void print_bst_node_tstr(struct bst_node_t* root) {
 	if (0 == root)
 		return;
 	print_bst_node_tstr(root->left);
 	printf("key : %s; value :", (char*)root->key); print_cell(root->value);printf("\n");
 	print_bst_node_tstr(root->right);
+}
+
+struct cell_t* cell_from_fn(struct cell_t* paramsandbody) {
+	struct cell_t* fn = malloc(sizeof(struct cell_t));
+	fn->tag = FN;
+	fn->p = paramsandbody;
+	return fn;
 }
 
 struct bst_node_t* bst_node_t_from_define(struct cell_t* cell) {
@@ -334,30 +347,20 @@ struct bst_node_t* bst_node_t_from_define(struct cell_t* cell) {
 		retval->right = 0;
 		return retval;
 	} else {
-		; // TODO : implement constants here
+		;
 	}
 	return 0;
 }
 
-int charcmp(void* ch1, void* ch2) {
-	return strcmp(ch1, ch2);
-}
-
-struct cell_t* param1(struct cell_t* params, struct bst_node_t* e);
-struct cell_t* param2(struct cell_t* params, struct bst_node_t* e);
-struct cell_t* param3(struct cell_t* params, struct bst_node_t* e);
-
 struct cell_t* eval(struct cell_t* exp, struct bst_node_t* e) {
 	if (0 == exp || &NA == exp) return &NA;
-	/*
-	printf("\n Called with: ");
+	/*	printf("\n Called with: ");
 	print_cell(exp);
-	printf("\n");
-	*/
+	printf("\n");*/
 
 	switch(exp->tag) {
 		case SYM:{
-			struct bst_node_t* nd = bst_node_t_find(e, exp->s, charcmp);
+			struct bst_node_t* nd = bst_node_t_find(e, exp->s, env_pred);
 			if (0 == nd)
 				return &NA;
 			else return  nd->value;
@@ -423,11 +426,11 @@ struct cell_t* eval(struct cell_t* exp, struct bst_node_t* e) {
 					} else if (0 == strcmp("define", func_name->s)) { // TODO : work here
 						struct bst_node_t* nd = bst_node_t_from_define(params);
 						if (0 != nd) {
-							e = bst_node_t_insert(e, nd, charcmp);
+							e = bst_node_t_insert(e, nd, env_pred);
 						}
 						return &NA;
 					} else {
-						struct bst_node_t* nd = bst_node_t_find(e, func_name->s, charcmp);
+						struct bst_node_t* nd = bst_node_t_find(e, func_name->s, env_pred);
 						if (0 == nd) {
 							char msg[256];
 							sprintf(msg, "undefined variable %s\n", func_name->s);
@@ -442,7 +445,7 @@ struct cell_t* eval(struct cell_t* exp, struct bst_node_t* e) {
 							struct cell_t* fnargs = params;
 							while (!is_nil(fnparams) && !is_nil(fnargs)) {
 								struct cell_t* ar = eval(CAR(fnargs), e);
-								e = bst_node_t_insert(e, bst_node_t_str_create(CAR(fnparams)->s, ar), charcmp);
+								e = bst_node_t_insert(e, bst_node_t_str_create(CAR(fnparams)->s, ar), env_pred);
 								fnparams = CDR(fnparams);
 								fnargs = CDR(fnargs);
 							}
@@ -453,7 +456,7 @@ struct cell_t* eval(struct cell_t* exp, struct bst_node_t* e) {
 							struct cell_t* retval = eval(CDR(fn->p), e);
 							fnparams = CAR(fn->p);
 							while (!is_nil(fnparams)) {
-   								e = bst_node_t_delete(e, CAR(fnparams)->s, charcmp);
+   								e = bst_node_t_delete(e, CAR(fnparams)->s, env_pred);
 								fnparams = CDR(fnparams);
 							}
 							return retval;
@@ -483,8 +486,8 @@ struct cell_t* param3(struct cell_t* params, struct bst_node_t* e) {
 }
 
 /*
-	TOKENIZATION ROUTINES
-*/
+	Here goes tokenization
+ */
 
 struct token_t* token_append(struct token_t* token, enum token_type_t type, const char* identifier, int id_len) {
 	token->next_token = malloc(sizeof(struct token_t));
@@ -560,7 +563,7 @@ void print_token_chain(struct token_t* token) {
 }
 
 /*
-	PARSING ROUTINES
+	Parsing stuff
 */
 
 struct cell_t* parse_cons_r(struct token_t** token, char expects_close_paren) {
@@ -600,7 +603,7 @@ struct cell_t* parse_r(struct token_t** token) {
 	return CONS(car, parse_r(token));
 }
 
-struct cell_t* parse(const char* data, int data_len) {
+struct cell_t* parse(struct env_t* e, const char* data, int data_len) {
 	struct token_t* token = tokenize(data, data_len);
 	printf("\ngot a token chain\n");
 	struct token_t* t = token->next_token;
@@ -622,7 +625,11 @@ int exec(const char* filename) {
 	fread(buffer, 1, buffer_length, file);
 	fclose(file);
 	buffer[buffer_length] = 0;
-	struct cell_t* ast = parse(buffer, buffer_length);
+	printf(buffer);
+	struct env_t* root_context = env_create(filename);
+	printf(buffer);
+	printf("\n %d", buffer_length);
+	struct cell_t* ast = parse(root_context, buffer, buffer_length);
 	printf("parsed\n");
 	print_cell(ast);
 	struct bst_node_t* e = bst_node_t_str_create("#", 0);
@@ -631,10 +638,6 @@ int exec(const char* filename) {
 	print_cell(evaled);
 	return 0;
 }
-
-/*
-	MAIN
-*/
 
 int main(int argc, char** argv) {
 	int i = 1;
