@@ -1,8 +1,9 @@
-#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "m.h"
 
+#define CELL_ALLOC bmalloc
 const size_t max_symbol_size = 256;
 const char* ALLOWED_TOKENS = "+-.*/<=>!?:$%_&~^.";
 
@@ -92,22 +93,22 @@ void assert(int value, const char* message) {
 }
 
 struct cell_t* cell_from_int(int i) {
-	struct cell_t* int_cell = malloc(sizeof(struct cell_t));
+	struct cell_t* int_cell = CELL_ALLOC(sizeof(struct cell_t));
 	int_cell->tag = INTEGER;
 	int_cell->i = i;
 	return int_cell;
 }
 
 struct cell_t* cell_from_string(char* str) {
-	struct cell_t* str_cell = malloc(sizeof(struct cell_t));
+	struct cell_t* str_cell = CELL_ALLOC(sizeof(struct cell_t));
 	str_cell->tag = STRING;
-	str_cell->s = malloc(sizeof(char)*strlen(str));
+	str_cell->s = CELL_ALLOC(sizeof(char)*strlen(str));
 	strcpy(str_cell->s, str);
 	return str_cell;
 }
 
 struct cell_t* cell_call() {
-	struct cell_t* cell = malloc(sizeof(struct cell_t));
+	struct cell_t* cell = CELL_ALLOC(sizeof(struct cell_t));
 	cell->tag = CALL;
 	cell->p = 0;
 	return cell;
@@ -121,7 +122,7 @@ void cell_free(struct cell_t* cell) {
 }
 
 struct cell_t* cell_from_bool(char bool) {
-	struct cell_t* cell = malloc(sizeof(struct cell_t));
+	struct cell_t* cell = CELL_ALLOC(sizeof(struct cell_t));
 	cell->tag = BOOLEAN;
 	cell->i = 't' == bool;
 	return cell;
@@ -135,7 +136,7 @@ struct cell_t* cell_from_symbol(char* str, int len) {
 	else if (is_boolean(str))
 		return cell_from_bool(str[0]);
 
-	struct cell_t* cell = malloc(sizeof(struct cell_t));
+	struct cell_t* cell = CELL_ALLOC(sizeof(struct cell_t));
 	cell->tag = SYM;
 	cell->s = malloc(sizeof(char)*strlen(str));
 	strcpy(cell->s, str);
@@ -144,7 +145,7 @@ struct cell_t* cell_from_symbol(char* str, int len) {
 
 struct cell_t* cell_from_cons_cell(struct cons_cell_t* cons_cell) {
 	if (0 == cons_cell) return &NA;
-	struct cell_t* cell = malloc(sizeof(struct cell_t));
+	struct cell_t* cell = CELL_ALLOC(sizeof(struct cell_t));
 	cell->p = cons_cell;
 	cell->tag = CONS_CELL;
 	return cell;
@@ -160,7 +161,7 @@ struct cell_t* cell_from_cons_cell2(struct cell_t* a, struct cell_t* d) {
 }
 
 struct cell_t* cell_from_fn(struct cell_t* paramsandbody) {
-	struct cell_t* fn = malloc(sizeof(struct cell_t));
+	struct cell_t* fn = CELL_ALLOC(sizeof(struct cell_t));
 	fn->tag = FN;
 	fn->p = paramsandbody;
 	return fn;
@@ -238,8 +239,33 @@ void print_cell(struct cell_t* cell) {
 	}
 }
 
+void mark_cells(struct cell_t* c) {
+	if (&NA == c) return;
+	mark(c);
+	switch(c->tag) {
+		case INTEGER:
+		case BOOLEAN:
+		case STRING:
+		case SYM:
+		case NIL:
+		case CALL:
+			break;
+		case FN:
+			mark_cells(c->p);
+			break;
+		case CONS_CELL:
+			mark_cells(CAR(c));
+			mark_cells(CDR(c));
+	}
+}
+
+void free_unused_cells(struct cell_t* root) {
+	mark_cells(root);
+	sweep();
+}
+
 /*
-	FUNCTIONS FOR HANDLING BST-TREE
+	FUNCTIONS FOR HANDLING BST
 */
 
 struct bst_node_t* bst_node_t_str_create(const char* k, struct cell_t* v) {
@@ -297,6 +323,13 @@ struct bst_node_t* bst_node_t_find(struct bst_node_t* root, void* key, int (*pre
 	} else {
 		return bst_node_t_find(root->right, key, pred);
 	}
+}
+
+void free_bst(struct bst_node_t* root) {
+	if (0 == root) return;
+	free_bst(root->left);
+	free_bst(root->right);
+	free(root);
 }
 
 void print_bst_node_tstr(struct bst_node_t* root) {
@@ -502,6 +535,16 @@ struct token_t* token_append(struct token_t* token, enum token_type_t type, cons
 	return token;
 }
 
+void free_tokens(struct token_t* t) {
+	if (0 == t) return;
+	struct token_t* tmp = t;
+	while (tmp) {
+		t = t->next_token;
+		free(tmp);
+		tmp = t;
+	}
+}
+
 int   global_line_number;
 char* global_filename;
 
@@ -547,13 +590,17 @@ struct token_t* tokenize(const char* data, int data_len) {
 	return token;
 }
 
+void print_token(struct token_t* token) {
+	if (SYMBOL == token->type) {
+		printf("%s ", token->identifier);
+	} else {
+		printf("%c ", token->type);
+	}
+}
+
 void print_token_chain(struct token_t* token) {
 	while (token) {
-		if (SYMBOL == token->type) {
-			printf("%s ", token->identifier);
-		} else {
-			printf("%c ", token->type);
-		}
+		print_token(token);
 		token = token->next_token;
 	}
 	printf("\n");
@@ -567,7 +614,7 @@ struct cell_t* parse_cons_r(struct token_t** token, char expects_close_paren) {
 	if (0 == token) return &NA;
 	struct token_t* t = *token;
 	if (0 == t) return &NA;
-	printf(" - %s - %d\n", (*token)->identifier, (*token)->type);
+	print_token(*token);
 	if (OPEN_SQUARE_PAREN == t->type || OPEN_PAREN == t->type) {
 		const char closed = OPEN_PAREN == t->type ? CLOSE_PAREN : CLOSE_SQUARE_PAREN;
 		struct token_t* closing_paren = t->next_token;
@@ -606,7 +653,9 @@ struct cell_t* parse(const char* data, int data_len) {
 	struct token_t* t = token->next_token;
 	print_token_chain(t);
 	printf("\nprinted token chain\n");
-	return parse_r(&t);
+	struct cell_t* retval = parse_r(&t);
+	free_tokens(t);
+	return retval;
 }
 
 int exec(const char* filename) {
@@ -628,7 +677,11 @@ int exec(const char* filename) {
 	struct bst_node_t* e = bst_node_t_str_create("#", 0);
 	struct cell_t* evaled = eval(ast, e);
 	printf("\n result: ");
+	free(buffer);
+	free_bst(e);
 	print_cell(evaled);
+	dbg_printm();
+	free_unused_cells(&NA);
 	return 0;
 }
 
@@ -638,10 +691,13 @@ int exec(const char* filename) {
 
 int main(int argc, char** argv) {
 	int i = 1;
-	//exec("test.scm");
-	for (i = 0; i < argc; ++i) {
+	init_memory_runtime();
+	exec("test.scm");
+	dbg_printm();
+	destroy_mem_runtime();
+	/*	for (i = 0; i < argc; ++i) {
 		exec(argv[i]);
-	}
+	}*/
 	/*
 	struct env_t* e = env_create("test.scm");
 	e->e = bst_node_t_insert(e->e, bst_node_t_str_create("hello", cell_from_int(1)), env_pred);

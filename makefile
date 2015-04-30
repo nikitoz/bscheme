@@ -1,5 +1,5 @@
 bs:
-	cc -Wall -g bs.c -o bs
+	cc -Wall -g m.c m.h bs.c -o bs
 
 clean:
 	rm -f bs.exe
