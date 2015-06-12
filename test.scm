@@ -1,7 +1,1 @@
-
-(define (sum a b) (+ a b))
-(define (square a) (* a a))
-
-(if (< 1 (sum (sum 2 1) (car (cons 2 3))))
-	(cons (car (cons 1 2)) (square 2))
-	(sum (square 2) (square 3)))
+(define x 1)
