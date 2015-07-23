@@ -48,18 +48,25 @@ struct token_t* tokenize(const char* data, int data_len) {
 	char* symbol_accumulator = malloc(max_symbol_size);
 	int   symbol_len = 0;
 	int   comment = 0;
+	int   string  = 0;
 	for (; i < data_len; ++i) {
 		switch (data[i]) {
 			case ';'  : comment = 1; break;
 			case '\r' : break;
-			case '\n' : {
+			case '"' : if (0 == string) string = 1; else string = 0;
+			case '\n' :
+			if ('\n' == data[i]) {
 				++line_number;
 				if (1 == comment) {
 					comment = 0;
 				}
 			}
-			case '\t' :
 			case ' '  :
+					if (' ' == data[i] && (1 == string)) {
+						symbol_accumulator[symbol_len++] = data[i]; break;
+					}
+					
+			case '\t' :
 			case OPEN_SQUARE_PAREN:
 			case CLOSE_SQUARE_PAREN:
 			case CLOSE_PAREN:
@@ -69,7 +76,7 @@ struct token_t* tokenize(const char* data, int data_len) {
 					next = token_append(next, SYMBOL, symbol_accumulator, symbol_len);
 					symbol_len = 0;
 				}
-				if (!is_whitespace(data[i]))
+				if (!is_whitespace(data[i]) || (1 == string))
 					next = token_append(next, data[i], 0, 0);
 				break;
  			default :
@@ -77,7 +84,8 @@ struct token_t* tokenize(const char* data, int data_len) {
 				if ((data[i] >= 'a' && data[i] <= 'z') ||
 					(data[i] >= 'A' && data[i] <= 'Z') ||
 					(0 != strchr(ALLOWED_TOKENS, data[i])) ||
-					(data[i] >= '0' && data[i] <= '9')) {
+					(data[i] >= '0' && data[i] <= '9') ||
+					(string == 1)) {
 						symbol_accumulator[symbol_len++] = data[i];
 				}
 				break;

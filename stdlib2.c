@@ -6,6 +6,8 @@
 #include "eval.h"
 #include "bst.h"
 
+struct bst_node_t* bst_node_t_from_define(struct cell_t* cell, struct bst_node_t* e);
+
 struct cell_t* cons(struct cell_t* params, struct bst_node_t* e) {
 	return CONS(param1(params, e), param2(params, e));
 }
@@ -105,6 +107,25 @@ struct cell_t* define(struct cell_t* params, struct bst_node_t* e) {
 	return &NA;
 }
 
+struct cell_t* progn(struct cell_t* params, struct bst_node_t* e) {
+	if (is_nil(params))
+		fatal_error("no operands for progn");
+	struct cell_t* retval = &NA;
+	while (!is_nil(params)) {
+		retval = param1(params, e);
+		params = CDR(params);
+	}
+	return retval;
+}
+
+struct cell_t* is_null(struct cell_t* params, struct bst_node_t* e) {
+	if (is_nil(params))
+		fatal_error("no operands for null?");
+	if (is_nil(param1(params, e)))
+		return cell_from_bool('t');
+	return cell_from_bool('f');
+}
+
 struct cell_t* less(struct cell_t* params, struct bst_node_t* e) {
 	struct cell_t* operand1 = param1(params, e);
 	struct cell_t* operand2 = param2(params, e);
@@ -132,10 +153,10 @@ struct fn {
 struct fn natives[] = {
 	{"cons", cons }, {"cdr", cdr}, {"car", car}, {"+", sum}, {"*", product},
 	{"display", display}, {"-", minus}, {"/", division}, {"mod", modulo},
-	{"if", IF}, {"define", define}, {"<", less}
+	{"if", IF}, {"define", define}, {"<", less}, {"progn", progn}, {"null?", is_null}
 };
 
-static const int NATIVES_COUNT = 12;
+static const int NATIVES_COUNT = 14;
 struct bst_node_t* root_ = 0;
 int functions_inited = 0;
 

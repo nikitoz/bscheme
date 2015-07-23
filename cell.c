@@ -45,6 +45,8 @@ struct cell_t* cell_from_symbol(char* str, int len) {
 		return cell_from_int(atoi(str));
 	else if (is_boolean(str))
 		return cell_from_bool(str[0]);
+	else if (0 == strcmp(str, "null"))
+		return &NA;
 
 	struct cell_t* cell = CELL_ALLOC(sizeof(struct cell_t));
 	cell->tag = SYM;

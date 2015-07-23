@@ -1,1 +1,1 @@
-(define x 1)
+(display "hello world")

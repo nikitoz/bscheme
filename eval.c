@@ -38,7 +38,7 @@ struct bst_node_t* bst_node_t_from_define(struct cell_t* cell, struct bst_node_t
 		if (!name || !value || name == &NA) fatal_error("invalid bind");
 		if (name->tag != SYM)
 			fatal_error("tried to bind to non-symbol");
-		return  bst_node_t_str_create(name->s, (void*)eval(value, e));
+		return bst_node_t_str_create(name->s, (void*)eval(value, e));
 	}
 	return 0;
 }
@@ -54,8 +54,12 @@ struct cell_t* eval(struct cell_t* exp, struct bst_node_t* e) {
 	switch(exp->tag) {
 		case SYM : {
 			struct bst_node_t* nd = bst_node_t_find(e, exp->s, charcmp);
-			if (0 == nd)
+			if (0 == nd) {
+				char msg[256];
+				sprintf(msg, "undefined variable %s\n", exp->s);
+				fatal_error(msg);
 				return &NA;
+			}
 			else return  nd->value;
 		}
 		case CONS_CELL: {

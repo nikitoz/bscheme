@@ -30,7 +30,19 @@ struct cell_t* parse_cons_r(struct token_t** token, char expects_close_paren) {
 		*token = closing_paren->next_token;
 		return CONS(symbol, parse_cons_r(token, 1));
 	} else if (SYMBOL == t->type) {
-		struct cell_t* symbol = cell_from_symbol(t->identifier, t->id_len);
+		struct cell_t*  symbol =  cell_from_symbol(t->identifier, t->id_len);
+		struct token_t* current = t->next_token;
+		symbol = CONS(symbol, parse_cons_r(&current, 1));
+		*token = current;
+		return symbol;
+	} else if (t->type == '"') {
+		t = t->next_token;
+		char string[4096] = {'\0'};
+		do {
+			strcat(string, t->identifier);
+			t = t->next_token;
+		} while (t && t->type != '"');
+		struct cell_t* symbol = cell_from_string(string);
 		struct token_t* current = t->next_token;
 		symbol = CONS(symbol, parse_cons_r(&current, 1));
 		*token = current;
