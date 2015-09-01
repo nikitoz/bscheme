@@ -15,7 +15,7 @@ struct bst_node_t* bst_node_t_from_define(struct cell_t* cell, struct bst_node_t
 		struct cell_t* body = CADR(cell);
 		struct cell_t* fnname = CADR(prototype);
 		struct cell_t* params = CDR(CDR(prototype));
-	
+
 		struct cell_t* c  = params;
 		while (!is_nil(c)) {
 			if (!is_sym(CAR(c))) {
@@ -88,16 +88,14 @@ struct cell_t* eval(struct cell_t* exp, struct bst_node_t* e) {
 								fatal_error("is not a function\n");
 								return &NA;
 							}
-							struct cell_t* old_values = &NA;
+
 							struct cell_t* fnparams = CAR(fn->p);
 							struct cell_t* fnargs = params;
+							struct bst_node_t* call_env = bst_node_deep_copy(e);
 							while (!is_nil(fnparams) && !is_nil(fnargs)) {
 								char* current_name = CAR(fnparams)->s;
-								struct cell_t* arg = eval(CAR(fnargs), e);
-								struct bst_node_t* old_node = bst_node_t_find(e, current_name, charcmp);
-								struct cell_t* old_value = CONS(cell_from_string(current_name), old_node ? old_node->value : &NA);
-								old_values = CONS(old_value, old_values);
-								e = bst_node_t_insert(e, bst_node_t_str_create(current_name, arg), charcmp);
+								struct cell_t* arg = eval(CAR(fnargs),e);
+								call_env = bst_node_t_insert(call_env, bst_node_t_str_create(current_name, arg), charcmp);
 								fnparams = CDR(fnparams);
 								fnargs = CDR(fnargs);
 							}
@@ -105,23 +103,8 @@ struct cell_t* eval(struct cell_t* exp, struct bst_node_t* e) {
 								fatal_error("unbound variables\n");
 								return &NA;
 							}
-							struct cell_t* retval = eval(CDR(fn->p), e);
-							fnparams = CAR(fn->p);
-							while (!is_nil(fnparams)) {
-   								e = bst_node_t_delete(e, CAR(fnparams)->s, charcmp);
-								fnparams = CDR(fnparams);
-							}
 
-							while ((fnparams = CAR(old_values)) != &NA) {
-								if (CDR(fnparams) != &NA)
-									e = bst_node_t_insert(e, bst_node_t_str_create(CAR(fnparams)->s, CDR(fnparams)), charcmp);
-								old_values = CDR(old_values);
-							}
-
-							printf("\n");
-							print_cell(old_values);
-							printf("\n");
-							
+							struct cell_t* retval = eval(CDR(fn->p), call_env);
 							return retval;
 						}
 					}

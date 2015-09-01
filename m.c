@@ -89,7 +89,7 @@ void bfree(void* p) {
 
 void print_mem(struct block_t* b) {
 	if (b == 0) return;
-	printf("addr %p size %zu free %u\n", b, b->size, b->free);
+	printf("addr %p size %u free %u\n", b, b->size, b->free);
 	if (b->last) return;
 	print_mem(next_block(b));
 }

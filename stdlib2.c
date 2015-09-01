@@ -143,6 +143,19 @@ struct cell_t* less(struct cell_t* params, struct bst_node_t* e) {
 	return &NA;
 }
 
+
+
+struct cell_t* print_env_str(struct cell_t* params, struct bst_node_t* e) {
+	if (0 == e)
+		return &NA;
+	print_env_str(params, e->left);
+	printf("\n%s -> ", (char*)e->key);
+	print_cell(e->value);
+	printf("\n");
+	print_env_str(params, e->right);
+	return &NA;
+}
+
 typedef struct cell_t* (*impt)(struct cell_t* args, struct bst_node_t* e);
 
 struct fn {
@@ -153,10 +166,10 @@ struct fn {
 struct fn natives[] = {
 	{"cons", cons }, {"cdr", cdr}, {"car", car}, {"+", sum}, {"*", product},
 	{"display", display}, {"-", minus}, {"/", division}, {"mod", modulo},
-	{"if", IF}, {"define", define}, {"<", less}, {"progn", progn}, {"null?", is_null}
+	{"if", IF}, {"define", define}, {"<", less}, {"progn", progn}, {"null?", is_null}, {"print-env", print_env_str}
 };
 
-static const int NATIVES_COUNT = 14;
+static const int NATIVES_COUNT = 15;
 struct bst_node_t* root_ = 0;
 int functions_inited = 0;
 

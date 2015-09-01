@@ -64,3 +64,12 @@ void free_bst(struct bst_node_t* root) {
 	free_bst(root->right);
 	free(root);
 }
+
+struct bst_node_t* bst_node_deep_copy(struct bst_node_t* root) {
+	if (!root)
+		return 0;
+	struct bst_node_t* retval = bst_node_t_str_create(root->key, root->value);
+	retval->left  = bst_node_deep_copy(root->left);
+	retval->right = bst_node_deep_copy(root->right);
+	return retval;
+}
