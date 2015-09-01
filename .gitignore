@@ -1,0 +1,10 @@
+*.o
+*.bak
+*.pyc
+*.exe
+*.tmp
+*_local.*
+*~
+GPATH
+GTAGS
+GRTAGS
